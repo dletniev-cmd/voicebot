@@ -5,7 +5,7 @@ import tempfile
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from groq import Groq
 
 from config import BOT_TOKEN, GROQ_API_KEY
@@ -34,7 +34,6 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> s
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
-
         try:
             with open(tmp_path, "rb") as f:
                 result = groq_client.audio.transcriptions.create(
@@ -51,29 +50,26 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.ogg") -> s
     return await loop.run_in_executor(None, _transcribe)
 
 
-def get_sender_name(message: Message) -> str:
-    user = message.from_user
-    if not user:
-        return "кто-то"
-    if user.last_name:
-        return f"{user.first_name} {user.last_name}"
-    return user.first_name
-
-
-def format_transcription(text: str, name: str) -> str:
+def format_transcription(text: str) -> str:
     text = text.strip()
     if not text:
-        return "🎙 <i>не удалось распознать</i>"
-    return (
-        f"🎙 <b>{name}</b>\n"
-        f"<blockquote expandable>{text}</blockquote>"
-    )
+        return "<i>не удалось распознать</i>"
+    return f"<i>гс в текст</i>\n<blockquote expandable>{text}</blockquote>"
 
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
+    me = await bot.get_me()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="добавить в группу",
+            url=f"https://t.me/{me.username}?startgroup=true"
+        )]
+    ])
     await message.answer(
-        "привет — добавь меня в группу и я буду расшифровывать голосовые и кружки 🎙"
+        "привет — я расшифровываю голосовые сообщения и кружки 🎙\n\n"
+        "добавь меня в группу — и я буду автоматически переводить их в текст",
+        reply_markup=keyboard
     )
 
 
@@ -87,18 +83,14 @@ async def cmd_help(message: Message):
 
 
 async def handle_audio_message(message: Message, file_id: str, filename: str):
-    name = get_sender_name(message)
-
     reply = await message.reply("слушаю 🎧")
 
     try:
         audio_bytes = await download_file(bot, file_id)
         text = await transcribe_audio(audio_bytes, filename)
-        result = format_transcription(text, name)
-
+        result = format_transcription(text)
         await reply.edit_text(result, parse_mode="HTML")
-        logger.info("transcribed %s chars for %s in chat %s", len(text), name, message.chat.id)
-
+        logger.info("transcribed %s chars in chat %s", len(text), message.chat.id)
     except Exception as e:
         logger.error("transcription error: %s", e, exc_info=True)
         await reply.edit_text("не удалось расшифровать, попробуй ещё раз")
